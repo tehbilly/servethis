@@ -1,11 +1,13 @@
 package commands
 
 import (
-	"log"
-	"net/http"
+	"bytes"
+	"errors"
+	"fmt"
+	"net/rpc"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tehbilly/servethis/daemon"
@@ -16,33 +18,35 @@ var ServeThisCmd = &cobra.Command{
 	Short: "Serve a directory via http!",
 	Long:  "servethis is a utility for serving files via http.",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Add a basic do-nothing handler
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			log.Println("Hey")
-		})
+		for i := 1; i <= 5; i++ {
+			// Dial the daemon
+			conn, err := rpc.Dial("tcp", "127.0.0.1:8034")
+			if err != nil {
+				derr := StartDaemon()
+				if derr != nil {
+					fmt.Printf("Error attempting to start daemon during attempt %d. Error message: %v\n", i, derr)
+				}
+				continue
+			} else {
+				var url string
+				rpcArgs := &daemon.AddArgs{Context: ServeContext, Path: ServePath}
+				err = conn.Call("ServeThis.AddHandler", *rpcArgs, &url)
+				if err != nil {
+					fmt.Println("Error adding path to daemon:", err)
+					return
+				}
 
-		// We want the hostname to make a nice easy to copy link
-		hostname, err := os.Hostname()
-		if err != nil {
-			hostname = "0.0.0.0"
+				fmt.Printf("%s is being served up at: %s\n", ServePath, url)
+				break
+			}
 		}
-		hostname = strings.ToLower(hostname)
-
-		ctx := "/" + ServeContext + "/"
-
-		log.Printf("Starting http server to serve '%s' at:\nhttp://%s:%s%s", ServePath, hostname, "8000", ctx)
-		//fileHandler := http.FileServer(http.Dir(ServePath))
-		//wrappedHandler := AccessLoggingHandler(fileHandler)
-		http.Handle(ctx, http.StripPrefix(ctx, http.FileServer(http.Dir("."))))
-		log.Fatal(http.ListenAndServe(":8000", nil))
 	},
 }
 
 var (
-	ServePath     string
-	ServeContext  string
-	ExposeOnIndex bool
-	// The following are on the base command because this will call the server command with appropriate flags
+	ServePath    string
+	ServeContext string
+	servePort    int
 )
 
 // Stuff we gonna need pretty much urrywhurr
@@ -62,19 +66,30 @@ func init() {
 	}
 
 	// Set up global (persisitent) variables
-	ServeThisCmd.PersistentFlags().StringVar(&ServePath, "path", cwd, "Specify the path to serve. Defaults to current directory.")
-	ServeThisCmd.PersistentFlags().StringVarP(&ServeContext, "context", "c", ctx, "Context root for the served directory. Defaults to directory name (if available).")
-	ServeThisCmd.PersistentFlags().BoolVarP(&ExposeOnIndex, "index", "i", true, "Show this listing on the index?") // Should this default to false?
+	ServeThisCmd.Flags().StringVar(&ServePath, "path", cwd, "Specify the path to serve. Defaults to current directory.")
+	ServeThisCmd.Flags().StringVarP(&ServeContext, "context", "c", ctx, "Context root for the served directory. Defaults to directory name (if available).")
+	ServeThisCmd.Flags().IntVar(&servePort, "port", 8000, "Port the daemon will listen on (if not already started).")
 
 	// Add subcommands
 	ServeThisCmd.AddCommand(versionCmd)
 	ServeThisCmd.AddCommand(daemon.DaemonCmd)
+	ServeThisCmd.AddCommand(StopCmd)
+	ServeThisCmd.AddCommand(RemoveCmd)
 }
 
-// A bit excessive? Perhaps. But I enjoy seeing what's going on while the server is running.
-func AccessLoggingHandler(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Println(r.Method, r.RemoteAddr, "=>", r.RequestURI)
-		h.ServeHTTP(w, r)
-	})
+func StartDaemon() error {
+	// Start the daemon if it ain't running
+	_, err := rpc.Dial("tcp", "127.0.0.1:8034")
+	if err != nil { // Can't reach it? Well... start it!
+		fmt.Println("Daemon is not currently running. Starting daemon...")
+		cmd := exec.Command(os.Args[0], "daemon")
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
+		if err != nil {
+			fmt.Println("Unable to start daemon!", err)
+			return errors.New("Daemon did not start")
+		}
+	}
+	return nil
 }
