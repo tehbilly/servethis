@@ -16,6 +16,7 @@ var StopCmd = &cobra.Command{
 		conn, err := rpc.Dial("tcp", "127.0.0.1:8034")
 		if err != nil {
 			fmt.Println("Daemon is not reachable. Can't shut down something that ain't running!")
+			return
 		}
 
 		var rargs struct{}

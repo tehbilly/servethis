@@ -20,7 +20,8 @@ var RemoveCmd = &cobra.Command{
 		// Try to dial the daemon
 		conn, err := rpc.Dial("tcp", "127.0.0.1:8034")
 		if err != nil {
-			fmt.Println("Daemon is not reachable. Are you sure it's running?\n", err)
+			fmt.Println("Daemon is not reachable. Are you sure it's running?")
+			return
 		}
 
 		context := args[0]

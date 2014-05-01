@@ -56,7 +56,7 @@ Please do not run this command directly unless you know what you are doing!`,
 		go startRPC()
 
 		// Our status/index handler
-		http.HandleFunc("/", statusHandler)
+		http.HandleFunc("/", indexHandler)
 
 		// Shouldn't hurt if stdout is piped to nowhere
 		fmt.Printf("Daemon started successfully. Starting HTTP server at http://%s:%d\n", hostname, httpport)
@@ -95,8 +95,15 @@ func init() {
 func shutdownOnEmptyCheck() {
 	for {
 		<-time.After(30 * time.Second)
-		if len(Daemon.FileServers) == 0 {
-			os.Exit(1)
+		keepRunning := false
+		for _, v := range Daemon.FileServers {
+			if v.Enabled {
+				keepRunning = true
+				break
+			}
+		}
+		if !keepRunning {
+			os.Exit(0)
 		}
 	}
 }
@@ -122,14 +129,14 @@ func startRPC() {
 
 func NewServeDaemon() *serveDaemon {
 	sd := &serveDaemon{
-		FileServers: make(map[string]string),
+		FileServers: make(map[string]*ServeHTTPHandler),
 		QuitChan:    make(chan bool, 1),
 	}
 	return sd
 }
 
 type serveDaemon struct {
-	FileServers map[string]string // map[context]path
+	FileServers map[string]*ServeHTTPHandler // map[context]path
 	QuitChan    chan bool
 }
 
@@ -147,7 +154,7 @@ func AddFileServer(context, path string) (string, error) {
 		ctxIndex := 1
 		for {
 			tmpCtx := fmt.Sprintf("%s-%d", ctx, ctxIndex)
-			if val, contains := Daemon.FileServers[tmpCtx]; contains && val != "" {
+			if _, contains := Daemon.FileServers[tmpCtx]; contains {
 				ctxIndex++
 				continue
 			} else {
@@ -157,18 +164,16 @@ func AddFileServer(context, path string) (string, error) {
 		}
 	}
 
-	// is the context already used? Eh, for now we'll just write over the old one
-	Daemon.FileServers[ctx] = path // We want this as just a name in here
-	ctx = "/" + ctx + "/"
-	http.Handle(ctx, http.StripPrefix(ctx, http.FileServer(http.Dir(path))))
+	sh := NewServeHTTPHandler(ctx, path)
+	Daemon.FileServers[ctx] = sh
+	http.HandleFunc("/"+ctx+"/", sh.ServeHTTP)
 
-	serveURL := "http://" + hostname + ":" + strconv.Itoa(httpport) + ctx
+	serveURL := "http://" + hostname + ":" + strconv.Itoa(httpport) + "/" + ctx
 	return serveURL, nil
 }
 
 func RemoveFileServer(context string) {
-	http.HandleFunc("/"+context+"/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "There is no longer any content being served at: %s", context)
-	})
-	Daemon.FileServers[context] = ""
+	ctx := strings.TrimLeft(context, "/")
+	ctx = strings.TrimRight(ctx, "/")
+	Daemon.FileServers[ctx].Enabled = false
 }

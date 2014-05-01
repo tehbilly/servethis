@@ -37,7 +37,7 @@ func (s *ServeThisRPC) RemoveHandler(context *string, reply *string) error {
 	ctx := strings.TrimLeft(*context, "/")
 	ctx = strings.TrimRight(ctx, "/")
 
-	if val, contains := Daemon.FileServers[ctx]; contains && val != "" {
+	if _, contains := Daemon.FileServers[ctx]; contains {
 		RemoveFileServer(ctx)
 		*reply = "No longer serving content for: " + ctx
 	} else {
