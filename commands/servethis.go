@@ -28,6 +28,25 @@ var ServeThisCmd = &cobra.Command{
 				}
 				continue
 			} else {
+				// If path isn't provided, get the current path
+				if ServePath == "" {
+					cwd, err := os.Getwd()
+					if err != nil {
+						fmt.Printf("Unable to assertain current directory! Please provide absolute path to serve.\nError:%s\n", err)
+						return
+					}
+					ServePath = cwd
+				}
+				// If ServeContext wasn't provided, figure out a logical default
+				if ServeContext == "" {
+					ctx, err := filepath.Abs(ServePath)
+					if err != nil {
+						ServeContext = "serve"
+					} else {
+						ServeContext = filepath.Base(ctx)
+					}
+				}
+
 				var url string
 				rpcArgs := &daemon.AddArgs{Context: ServeContext, Path: ServePath}
 				err = conn.Call("ServeThis.AddHandler", *rpcArgs, &url)
@@ -51,23 +70,9 @@ var (
 
 // Stuff we gonna need pretty much urrywhurr
 func init() {
-	// Get the current working directory for defaults
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
-	}
-	var ctx string
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
-		abs = "."
-		ctx = "serve"
-	} else {
-		ctx = filepath.Base(abs)
-	}
-
 	// Set up global (persisitent) variables
-	ServeThisCmd.Flags().StringVar(&ServePath, "path", cwd, "Specify the path to serve. Defaults to current directory.")
-	ServeThisCmd.Flags().StringVarP(&ServeContext, "context", "c", ctx, "Context root for the served directory. Defaults to directory name (if available).")
+	ServeThisCmd.Flags().StringVarP(&ServePath, "path", "p", "", "Specify the path to serve. Defaults to current directory.")
+	ServeThisCmd.Flags().StringVarP(&ServeContext, "context", "c", "", "Context root for the served directory. Defaults to directory name (if available).")
 	ServeThisCmd.Flags().IntVar(&servePort, "port", 8000, "Port the daemon will listen on (if not already started).")
 
 	// Add subcommands
